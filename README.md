@@ -7,7 +7,7 @@ Still some bugs but seems fun.
 
 ## A simple game!
 
-Clike [here](https://weatheringwithu.github.io/index.html) to view demo.
+Clike [here](https://weatheringwithu.github.io/Destruction-Rendering-Demo-Game/index.html) to view demo.
 
 ## Instructions:
 Press Up/Down/Left/Right Arrow to control the cannon.
