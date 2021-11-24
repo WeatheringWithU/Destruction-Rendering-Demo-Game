@@ -1,1 +1,638 @@
-"hello" 
+<!doctype html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DestructionDemo</title>
+    <link rel="stylesheet" type="text/css" href="main.css">
+    <script src="include/three.js" type="text/javascript"></script>
+    <script src="include/cannon.min.js" type="text/javascript"></script>
+    <script src="include/BufferGeometryUtils.js" type="text/javascript"></script>
+    <script src='include/dat.gui.min.js' type="text/javascript"></script>
+    <script src="src/models/models_module.js" type="text/javascript"></script>
+    <script src="src/models/floor_model.js" type="text/javascript"></script>
+    <script src="src/models/cannon_model.js" type="text/javascript"></script>
+    <script src="src/models/cannonball_model.js" type="text/javascript"></script>
+    <script src="src/models/pallet_model.js" type="text/javascript"></script>
+    <script src="src/models/bar_model.js" type="text/javascript"></script>
+    <script src="src/models/cylinder_model.js" type="text/javascript"></script>
+    <script src="src/models/sphere_model.js" type="text/javascript"></script>
+    <script src="src/OribitControls.js" type="text/javascript"></script>
+    <script src="src/utils.js" type="text/javascript"></script>
+</head>
+<body>
+    <script id="vshader" type="x-shader/x-vertex">
+		precision mediump float;
+        precision mediump int;
+
+        uniform mat4 modelViewMatrix; // optional
+        uniform mat4 projectionMatrix; // optional
+
+        attribute vec3 position;
+        attribute vec4 color;
+
+        varying vec3 vPosition;
+        varying vec4 vColor;
+
+        void main()	{
+            vPosition = position;
+            vColor = color;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+        }
+	</script>
+	<script id="fshader" type="x-shader/x-fragment">
+		
+        precision mediump float;
+        precision mediump int;
+
+        uniform float time;
+
+        varying vec3 vPosition;
+        varying vec4 vColor;
+
+        void main()	{
+            vec4 color = vec4( vColor );
+            color.r += sin( vPosition.z * 5.0 + time ) * 0.5;
+            gl_FragColor = color;
+        }
+	</script>
+
+    <script>
+        var container;
+        var options = {
+            floor:{
+                width: 1
+            },
+            ball: {
+                ball_speed: 100,
+                ball_direction: 5
+            },
+            CannonPosition:{
+                x: -30.0,
+                y: 0,
+                degree: 0
+            },
+            Simulation:{
+                step: 1.0
+            },
+            Light:{
+                dir_light_rotate:0
+            }
+        };
+        var texture_links = {
+            'cannon': 'src/image/cannonball_texture.jpg',
+            'wood_floor': 'src/image/wood_floor_texture.jpg',
+            'wood_pallet': 'src/image/wall-texture-250x250.png',
+            'cube_heart': 'src/image/cube_heart.png',
+            'wall_texture2': 'src/image/wall_texture_2.png',
+            'cube_texture1': 'src/image/cube_texture_1.jpg',
+            'circle': 'src/image/circle.png'
+        };
+        const loader = new THREE.TextureLoader();
+        var WIDTH = document.body.clientWidth;
+        var HEIGHT = document.body.clientHeight;
+        var scene, world, camera, renderer;
+        var INTERSECTED, lastPoint, offset, move_object, controls, gui;
+        var floor_model, cannon_model, shoot_line_model, shoot_line_model_mesh;
+        var ambient_light, hemi_light, dir_light;
+        var Selected = Boolean(false);
+        var model_number = 0;
+        var ball_number = 0;
+        var model_list = [];
+        var ball_list = [];
+        var cannon_number = 0;
+        const pointer = new THREE.Vector2();
+        var Up_Arrow = '38';
+        var Down_Arrow = '40';
+        var Left_Arrow = '37';
+        var Right_Arrow = '39';
+        var Left_Rotation = '65';
+        var Right_Rotation = '68';
+        var Shoot_button = '13';
+        var Up_ball_direction = '87';
+        var Down_ball_direction = '83';
+        var Up_Arrow_pressed = Boolean(false);
+        var Down_Arrow_pressed = Boolean(false);
+        var Left_Arrow_pressed = Boolean(false);
+        var Right_Arrow_pressed = Boolean(false);
+        var Left_Rotation_pressed = Boolean(false);
+        var Right_Rotation_pressed = Boolean(false);
+        var Shoot_button_pressed = Boolean(false);
+        var Up_ball_direction_pressed = Boolean(false);
+        var Down_ball_direction_pressed = Boolean(false);
+        var OriginalHex;
+        var Original_camera_position;
+        var cylinder;
+        var sphere_material, sphere_model;
+        var time = 0;
+        document.addEventListener('mousemove', MouseMove );
+        document.addEventListener('mousedown', MouseDown );
+        document.addEventListener('keydown', onKeyDown, false);
+        document.addEventListener('keyup', onKeyUp, false);
+        var raycaster = new THREE.Raycaster();
+        window.addEventListener( 'resize', onWindowResize );
+        container = document.createElement('div');
+        document.body.appendChild(container);
+
+        sphere_color = [];
+        sphere_color.push( Math.random() * 255 );
+        sphere_color.push( Math.random() * 255 );
+        sphere_color.push( Math.random() * 255 );
+        sphere_color.push( Math.random() * 255 );
+        const colorAttribute = new THREE.Uint8BufferAttribute(sphere_color, 4);
+        colorAttribute.normalized = true;
+        var sphere_material = new THREE.RawShaderMaterial( {
+            uniforms: {
+                "time": { value: 1.0 }
+            },
+            vertexShader: document.getElementById('vshader').textContent,
+            fragmentShader: document.getElementById('fshader').textContent,
+            depthTest: true,
+            depthWrite: true,
+        } );
+
+        construct_scene();
+        model_basic();
+        model_bars();
+        model_cylinders();
+        model_sphere();
+        addGUI();
+        animate();
+
+        window.addEventListener('keydown', function (event) {
+                if (event.keyCode == 82) {
+                    reset();
+                }
+        })
+        
+        function construct_scene(){
+            scene = new THREE.Scene();
+            world = new CANNON.World();
+            world.gravity.set(0, -9.82, 0);
+            world.broadphase = new CANNON.NaiveBroadphase();
+            var path = "src/image/skybox/";
+            var format = '.jpg';
+            var urls = [
+                path + 'px' + format, path + 'nx' + format,
+                path + 'py' + format, path + 'ny' + format,
+                path + 'pz' + format, path + 'nz' + format
+            ];
+            var textureCube = new THREE.CubeTextureLoader().load(urls);
+            textureCube.format = THREE.RGBFormat;
+            scene.background = textureCube;
+            // light
+            ambient_light = new THREE.AmbientLight(0x404040);
+            scene.add(ambient_light);
+            cannon_number = cannon_number + 1;
+            hemi_light = new THREE.HemisphereLight( 0xffffff, 0xffffff, 0.6 );
+            hemi_light.color.setHSL( 0.6, 1, 0.6 );
+            hemi_light.groundColor.setHSL( 0.095, 1, 0.75 );
+            hemi_light.position.set( 0, -50, 0 );
+            var hemi_light_helper = new THREE.HemisphereLightHelper(hemi_light, 10 );
+            scene.add(hemi_light);
+            cannon_number = cannon_number + 1;
+            dir_light = new THREE.DirectionalLight( 0xffffff, 1 );
+            dir_light.color.setHSL( 0.1, 1, 0.95 );
+            dir_light.position.set(
+                400 * Math.sin(degrees_to_radians(options.Light.dir_light_rotate - 45)), 
+                300, 
+                400 * Math.cos(degrees_to_radians(options.Light.dir_light_rotate - 45)), 
+            );
+            // dir_light.position.multiplyScalar(300);
+            dir_light.castShadow = true;
+            dir_light.shadow.mapSize.width = 4048;
+            dir_light.shadow.mapSize.height = 4048;
+            const d = 250;
+            dir_light.shadow.camera.left = - d;
+            dir_light.shadow.camera.right = d;
+            dir_light.shadow.camera.top = d;
+            dir_light.shadow.camera.bottom = - d;
+            dir_light.shadow.camera.far = 3500;
+            dir_light.shadow.bias = - 0.000001;
+            dir_light.target.position.set(-30 , 0 ,0);
+            // scene.add(dir_light.target);
+            scene.add(dir_light);
+            cannon_number = cannon_number + 1;
+            hemi_light.visible = ! hemi_light.visible;
+            //
+            camera = new THREE.PerspectiveCamera(45, WIDTH/HEIGHT, 0.1, 500);
+            renderer = new THREE.WebGLRenderer({antialias: false}); 
+            camera.position.set(-85, 35, -55);
+            camera.lookAt(0, 2, 0);
+            renderer.setSize(WIDTH, HEIGHT);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            container.appendChild( renderer.domElement );     
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.rotateSpeed = 0.3;
+            raycaster.setFromCamera(pointer, camera);
+            
+            var region_points = [];
+            var region_line_material = new THREE.LineBasicMaterial({color: 0x0000ff});
+            region_points.push( new THREE.Vector3(-20, 1.1, -20));
+            region_points.push( new THREE.Vector3(-20, 1.1, 20));
+            region_points.push( new THREE.Vector3(-60, 1.1, 20));
+            region_points.push( new THREE.Vector3(-60, 1.1, -20));
+            region_points.push( new THREE.Vector3(-20, 1.1, -20));
+            var region_line_geometry = new THREE.BufferGeometry().setFromPoints(region_points);
+            var region_line = new THREE.Line(region_line_geometry, region_line_material);
+            scene.add(region_line);
+            cannon_number = cannon_number + 1;
+        }
+
+        function model_basic(){
+            var floor_texture = new THREE.TextureLoader().load(texture_links['wood_floor']);
+            // var floor_textures = {map:floor_texture};
+            floor_model = new MODELS_MODULE.Floor(300, 300, floor_texture);
+            floor_model.set_position(0, 0, 0);
+            floor_model.receiveShadow = true;
+            floor_model.add_to_scene(scene);
+            floor_model.add_to_world(world);
+            cannon_number = cannon_number + 1;
+            model_list.push(floor_model);
+            var cannon_texture = new THREE.TextureLoader().load(texture_links['cannon']);
+            cannon_model = new MODELS_MODULE.Cannon(.31, 1.3, 15, cannon_texture);
+            cannon_model.set_position(-30, 1.00, 0);
+            cannon_model.set_rotation(0, 90, 0);
+            cannon_model.add_to_scene(scene);
+            cannon_model.add_to_world(world);
+            model_list.push(cannon_model);
+            model_number = model_number + 2;
+            OriginalHex = cannon_model.material.emissive.getHex();
+            draw_shoot_line();
+        }
+        function shoot_ball(){
+            var ball_texture = new THREE.TextureLoader().load(texture_links['cannon']);
+            var ball_model = new MODELS_MODULE.Cannonball(0.30, ball_texture);
+            ball_model.set_position(
+                options.CannonPosition.x + 1.3 * Math.cos(degrees_to_radians(options.CannonPosition.degree)), 
+                1.4, 
+                options.CannonPosition.y - 1.3 * Math.sin(degrees_to_radians(options.CannonPosition.degree))
+            );
+            
+            ball_model.set_velocity(
+                options.ball.ball_speed * Math.cos(degrees_to_radians(options.ball.ball_direction)) * Math.cos(degrees_to_radians(options.CannonPosition.degree)), 
+                options.ball.ball_speed * Math.sin(degrees_to_radians(options.ball.ball_direction)), 
+                - options.ball.ball_speed * Math.sin(degrees_to_radians(options.CannonPosition.degree))
+            );
+            ball_model.add_to_scene(scene);
+            ball_model.add_to_world(world);
+            ball_number = ball_number + 1;
+            ball_list.push(ball_model);
+        }   
+        function onKeyDown(event){
+            if(event.keyCode == Up_Arrow) Up_Arrow_pressed = Boolean(true);
+            if(event.keyCode == Down_Arrow) Down_Arrow_pressed = Boolean(true);
+            if(event.keyCode == Left_Arrow) Left_Arrow_pressed = Boolean(true);
+            if(event.keyCode == Right_Arrow) Right_Arrow_pressed = Boolean(true);
+            if(event.keyCode == Left_Rotation) Left_Rotation_pressed = Boolean(true);
+            if(event.keyCode == Right_Rotation) Right_Rotation_pressed = Boolean(true);
+            if(event.keyCode == Shoot_button) Shoot_button_pressed = Boolean(true);
+            if(event.keyCode == Up_ball_direction) Up_ball_direction_pressed = Boolean(true);
+            if(event.keyCode == Down_ball_direction) Down_ball_direction_pressed = Boolean(true);
+            process_all_key();
+        }
+        function onKeyUp(event){
+            if(event.keyCode == Up_Arrow) Up_Arrow_pressed = Boolean(false);
+            if(event.keyCode == Down_Arrow) Down_Arrow_pressed = Boolean(false);
+            if(event.keyCode == Left_Arrow) Left_Arrow_pressed = Boolean(false);
+            if(event.keyCode == Right_Arrow) Right_Arrow_pressed = Boolean(false);
+            if(event.keyCode == Left_Rotation) Left_Rotation_pressed = Boolean(false);
+            if(event.keyCode == Right_Rotation) Right_Rotation_pressed = Boolean(false);
+            if(event.keyCode == Shoot_button) Shoot_button_pressed = Boolean(false);
+            if(event.keyCode == Up_ball_direction) Up_ball_direction_pressed = Boolean(false);
+            if(event.keyCode == Down_ball_direction) Down_ball_direction_pressed = Boolean(false);
+        }
+        function process_all_key(){
+            var controller_x = gui.__folders.CannonPosition.__controllers[0];
+            var controller_y = gui.__folders.CannonPosition.__controllers[1];
+            var controller_degree = gui.__folders.CannonPosition.__controllers[2];
+            var controller_ball_direction = gui.__folders.Ball.__controllers[1];
+            // console.log([Up_Arrow_pressed, Down_Arrow_pressed, Left_Arrow_pressed, Right_Arrow_pressed, Left_Rotation_pressed, Right_Rotation_pressed]);
+            if(Up_Arrow_pressed){
+                controller_x.setValue(options.CannonPosition.x + 0.2);
+                cannon_model.set_position(options.CannonPosition.x, 1.00, options.CannonPosition.y);
+                shoot_line_model_mesh.position.set(
+                options.CannonPosition.x + 1.3 * Math.cos(degrees_to_radians(options.CannonPosition.degree)), 
+                1.4, 
+                options.CannonPosition.y - 1.3 * Math.sin(degrees_to_radians(options.CannonPosition.degree))
+                );
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            }
+            if(Down_Arrow_pressed){
+                controller_x.setValue(options.CannonPosition.x - 0.2);
+                cannon_model.set_position(options.CannonPosition.x, 1.00, options.CannonPosition.y);
+                shoot_line_model_mesh.position.set(
+                options.CannonPosition.x + 1.3 * Math.cos(degrees_to_radians(options.CannonPosition.degree)), 
+                1.4, 
+                options.CannonPosition.y - 1.3 * Math.sin(degrees_to_radians(options.CannonPosition.degree))
+                );
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            }
+            if(Left_Arrow_pressed){
+                controller_y.setValue(options.CannonPosition.y - 0.2);
+                cannon_model.set_position(options.CannonPosition.x, 1.00, options.CannonPosition.y);
+                shoot_line_model_mesh.position.set(
+                options.CannonPosition.x + 1.3 * Math.cos(degrees_to_radians(options.CannonPosition.degree)), 
+                1.4, 
+                options.CannonPosition.y - 1.3 * Math.sin(degrees_to_radians(options.CannonPosition.degree))
+                );
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            }
+            if(Right_Arrow_pressed){
+                controller_y.setValue(options.CannonPosition.y + 0.2);
+                cannon_model.set_position(options.CannonPosition.x, 1.00, options.CannonPosition.y);
+                shoot_line_model_mesh.position.set(
+                options.CannonPosition.x + 1.3 * Math.cos(degrees_to_radians(options.CannonPosition.degree)), 
+                1.4, 
+                options.CannonPosition.y - 1.3 * Math.sin(degrees_to_radians(options.CannonPosition.degree))
+                );
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            }
+            if(Left_Rotation_pressed){
+                controller_degree.setValue(options.CannonPosition.degree + 1);
+                cannon_model.set_rotation(0, 90 + options.CannonPosition.degree, 0);
+                shoot_line_model_mesh.position.set(
+                options.CannonPosition.x + 1.3 * Math.cos(degrees_to_radians(options.CannonPosition.degree)), 
+                1.4, 
+                options.CannonPosition.y - 1.3 * Math.sin(degrees_to_radians(options.CannonPosition.degree))
+                );
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            }
+            if(Right_Rotation_pressed){
+                controller_degree.setValue(options.CannonPosition.degree - 1);
+                
+                cannon_model.set_rotation(0, 90 + options.CannonPosition.degree, 0);
+                shoot_line_model_mesh.position.set(
+                options.CannonPosition.x + 1.3 * Math.cos(degrees_to_radians(options.CannonPosition.degree)), 
+                1.4, 
+                options.CannonPosition.y - 1.3 * Math.sin(degrees_to_radians(options.CannonPosition.degree))
+                );
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            }
+            if(Up_ball_direction_pressed){
+                controller_ball_direction.setValue(options.ball.ball_direction + 0.5);
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            }
+            if(Down_ball_direction_pressed){
+                controller_ball_direction.setValue(options.ball.ball_direction - 0.5);
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            }
+            if(Shoot_button_pressed){
+                shoot_ball();
+            }
+        }
+        function model_bars(){
+            var bar_texture = new THREE.TextureLoader().load(texture_links['wood_pallet']);
+            var cube_texture = new THREE.TextureLoader().load(texture_links['cube_heart']);
+            var bar1 = new MODELS_MODULE.bar(2, 0.50, 0.50, 5.0, bar_texture);
+            var bar2 = new MODELS_MODULE.bar(2, 0.50, 0.50, 5.0, bar_texture);
+            var bar3 = new MODELS_MODULE.bar(2, 0.50, 0.50, 5.0, bar_texture);
+            var wall1 = new MODELS_MODULE.bar(20, 20.50, 2.50, 1000.0, bar_texture);
+            var bar4 = new MODELS_MODULE.bar(5, 1.50, 0.50, 10.0, bar_texture);
+            var cube = new MODELS_MODULE.bar(3.0, 3.0, 3.00, 10.0, cube_texture);
+            var wall2 = new MODELS_MODULE.bar(20, 30, 2.50, 1000.0, bar_texture);
+            var wall3 = new MODELS_MODULE.bar(30, 20, 2.50, 1000.0, bar_texture);
+
+            bar1.set_position(5.0, 2.5 + 1.0, 0);
+            bar2.set_position(5.0, 1.0 + 1.0, -0.75);
+            bar3.set_position(5.0, 1.0 + 1.0, 0.75);
+            wall1.set_position(20.5, 10 + 1.0, 0);
+            bar4.set_position(7.5, 2.5 + 1.0, 0);
+            cube.set_position(45.0, 8, 50);
+            wall2.set_position(40.5, 11, -30);
+            wall3.set_position(20.5, 11, -50);
+
+
+            bar1.set_rotation(0, -90, 0);
+            bar2.set_rotation(90, -90, 0);
+            bar3.set_rotation(90, -90, 0);
+            wall1.set_rotation(90, -90, 0);
+            bar4.set_rotation(90, -90, 0);
+            cube.set_rotation(0, -45, 0);
+            wall2.set_rotation(90, -90, 0);
+            wall3.set_rotation(0, 0, 0);
+
+            bar1.add_to_scene(scene);
+            bar2.add_to_scene(scene);
+            bar3.add_to_scene(scene);
+            wall1.add_to_scene(scene);
+            bar4.add_to_scene(scene);
+            cube.add_to_scene(scene);
+            wall2.add_to_scene(scene);
+            wall3.add_to_scene(scene);
+
+
+            bar1.add_to_world(world);
+            bar2.add_to_world(world);
+            bar3.add_to_world(world);
+            wall1.add_to_world(world);
+            bar4.add_to_world(world);
+            cube.add_to_world(world);
+            wall2.add_to_world(world);
+            wall3.add_to_world(world);
+
+
+            model_list.push(bar1);
+            model_list.push(bar2);
+            model_list.push(bar3);
+            model_list.push(wall1);
+            model_list.push(bar4);
+            model_list.push(cube);
+            model_list.push(wall2);
+            model_list.push(wall3);
+
+            model_number = model_number + 8;
+        }
+        
+        function model_cylinders(){
+            var cylinder_texture = new THREE.TextureLoader().load(texture_links['wood_pallet']);
+            cylinder = new MODELS_MODULE.cylinder(1.5, 1.5, 5, 32, 500, cylinder_texture);
+            cylinder.set_position(45.0, 3, 50);
+            cylinder.set_rotation(0, 90, 0);
+            cylinder.add_to_scene(scene);
+            cylinder.add_to_world(world);
+            model_list.push(cylinder);
+            model_number = model_number + 1;
+        }
+        
+        function model_sphere(){
+            sphere_model = new MODELS_MODULE.sphere(2.50, sphere_material);
+            sphere_model.geometry.setAttribute('color', colorAttribute );
+            sphere_model.set_position(20, 3.2, -30);
+            sphere_model.add_to_scene(scene);
+            sphere_model.add_to_world(world);
+            model_list.push(sphere_model);
+            model_number = model_number + 1;
+        }
+        
+        function animate(){
+            raycaster.setFromCamera(pointer, camera);
+            Interactive_object = scene.children.slice(cannon_number, cannon_number + 1);
+            const intersects = raycaster.intersectObjects(Interactive_object);
+            if ( intersects.length > 0 ) {
+                if (INTERSECTED!= intersects[0].object ) {
+                    INTERSECTED = intersects[0].object;
+                    if (!Selected) INTERSECTED.material.emissive.setHex(0x008080);
+                }
+            } else {
+                if (INTERSECTED && (!Selected)) INTERSECTED.material.emissive.setHex(OriginalHex);
+                INTERSECTED = null;
+            }
+            if (sphere_model.body.velocity.norm() > 0.1)
+            {
+                time = time + 1.0 * sphere_model.body.velocity.norm();
+			    sphere_material.uniforms[ "time" ].value = time;
+            }
+            controls.update();
+            update_physics();
+            renderer.render(scene, camera);
+            requestAnimationFrame(animate);
+        }
+        function update_physics(){
+            world.step(options.Simulation.step/70.0);
+            for (i=0; i < ball_number; i++)
+            {
+                ball_list[i].update_physics();
+            }
+            for (i=0; i < model_number; i++)
+            {
+                model_list[i].update_physics();
+            }
+        }
+        function reset(){
+            for (i = model_number - 1; i > -1; i--)
+            {
+                model_list[i].remove_from_scene(scene);
+                model_list[i].remove_from_world(world);
+                model_list.pop();
+            }
+            for (i = ball_number - 1; i > -1; i--)
+            {
+                ball_list[i].remove_from_scene(scene);
+                ball_list[i].remove_from_world(world);
+                ball_list.pop();
+            }
+            scene.remove(shoot_line_model_mesh);
+            var controller_x = gui.__folders.CannonPosition.__controllers[0];
+            var controller_y = gui.__folders.CannonPosition.__controllers[1];
+            var controller_degree = gui.__folders.CannonPosition.__controllers[2];
+            controller_x.setValue(-30.0);
+            controller_y.setValue(0.0);
+            controller_degree.setValue(0.0);
+            model_number = 0;
+            ball_number = 0;
+            cannon_number = 4;
+            options.CannonPosition.x = -30;
+            options.CannonPosition.y = 0;
+            options.CannonPosition.degree = 0;
+            model_basic();
+            model_bars();
+            model_cylinders();
+            model_sphere()
+        }
+
+        function addGUI(){
+            gui = new dat.GUI({width: 400});
+            var ballOptions = gui.addFolder('Ball');
+            ballOptions.add(options.ball, 'ball_speed', 10, 200, 10).name("ball_spped").listen();
+            ballOptions.add(options.ball, 'ball_direction', 0, 30, 0.5).name("ball_direction").onChange(function(){
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            });
+            ballOptions.open();
+            var PositionOptions = gui.addFolder("CannonPosition");
+            PositionOptions.add(options.CannonPosition, "x", -60, -20, 0.2).name("x").onChange(function() {
+                cannon_model.set_position(options.CannonPosition.x, 1.00, options.CannonPosition.y);
+                shoot_line_model_mesh.position.set(
+                options.CannonPosition.x + 1.3 * Math.cos(degrees_to_radians(options.CannonPosition.degree)), 
+                1.4, 
+                options.CannonPosition.y - 1.3 * Math.sin(degrees_to_radians(options.CannonPosition.degree))
+                );
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            });
+            PositionOptions.add(options.CannonPosition, "y", -20, 20, 0.2).name("y").onChange(function() {
+                cannon_model.set_position(options.CannonPosition.x, 1.00, options.CannonPosition.y);
+                shoot_line_model_mesh.position.set(
+                options.CannonPosition.x + 1.3 * Math.cos(degrees_to_radians(options.CannonPosition.degree)), 
+                1.4, 
+                options.CannonPosition.y - 1.3 * Math.sin(degrees_to_radians(options.CannonPosition.degree))
+                );
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            });
+            PositionOptions.add(options.CannonPosition, "degree", -180, 180, 1).name("degree").onChange(function() {
+                cannon_model.set_rotation(0, 90 + options.CannonPosition.degree, 0);
+                shoot_line_model_mesh.position.set(
+                options.CannonPosition.x + 1.3 * Math.cos(degrees_to_radians(options.CannonPosition.degree)), 
+                1.4, 
+                options.CannonPosition.y - 1.3 * Math.sin(degrees_to_radians(options.CannonPosition.degree))
+                );
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            });
+            PositionOptions.open();
+            var SimulationOptions = gui.addFolder('Simulation');
+            SimulationOptions.add(options.Simulation, 'step', 0.01, 1.0, 0.01).name("step").listen();
+            SimulationOptions.open();
+            var LightOptions = gui.addFolder('Light');
+            LightOptions.add(options.Light, 'dir_light_rotate', 0, 360, 1).name("dir_light_rotate").onChange(function() {
+                dir_light.position.set(
+                400 * Math.sin(degrees_to_radians(options.Light.dir_light_rotate - 45)), 
+                300, 
+                400 * Math.cos(degrees_to_radians(options.Light.dir_light_rotate - 45)), 
+                );
+            });
+            LightOptions.open();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize( window.innerWidth, window.innerHeight );
+        }
+
+        function MouseDown(event) {
+            if (!Selected){
+                if(INTERSECTED){
+                    INTERSECTED.material.emissive.setHex(0xff1000);
+                    move_object = INTERSECTED; 
+                    lastPoint = [move_object.position['x'], move_object.position['y'], move_object.position['z']];
+                    console.log(move_object.position);
+                    Selected = !Selected;
+                    Original_camera_position = [camera.position['x'], camera.position['y'], camera.position['z']];
+                    camera.position.set(move_object.position['x'] - 1, move_object.position['y'] + 1, move_object.position['z']);
+                    // camera.position.set(-115, 22, 0);
+                }
+            }
+            else
+            {
+                camera.position.set(Original_camera_position[0], Original_camera_position[1], Original_camera_position[2]);
+                move_object.material.emissive.setHex(OriginalHex);
+                Selected = !Selected;
+            }
+        }
+        function MouseMove(event) {
+            pointer.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+            pointer.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+            if(Selected){
+                //camera.postion
+                // console.log(move_object.position);
+                // camera.position.set(move_object.position[0] - 1, move_object.position[1] + 1, move_object.position[0]);
+            }
+        }
+        function draw_shoot_line(){
+            const material = new THREE.LineBasicMaterial({
+	            color: 0xff1000
+            });
+            shoot_line_model = new THREE.BoxBufferGeometry(3, 0.05, 0.05);
+            shoot_line_model_mesh = new THREE.Mesh(shoot_line_model, material);
+            shoot_line_model.translate(1.5, 0, 0);
+            shoot_line_model_mesh.position.set(
+                options.CannonPosition.x + 1.3 * Math.cos(degrees_to_radians(options.CannonPosition.degree)), 
+                1.4, 
+                options.CannonPosition.y + 1.3 * Math.sin(degrees_to_radians(options.CannonPosition.degree))
+                );
+                shoot_line_model_mesh.rotation.set(degrees_to_radians(0),degrees_to_radians(options.CannonPosition.degree), degrees_to_radians(options.ball.ball_direction));
+            scene.add(shoot_line_model_mesh);
+        }
+    </script>    
+</body>
+</html> 
