@@ -1,4 +1,4 @@
-# Cool Destruction demo with three.js and cannon.js
+# Little physics game demo with three.js and cannon.js
 
 ## Term Project of CG course
 Achieved a simple game demo using [three.js](https://github.com/mrdoob/three.js) and [cannon.js](https://github.com/schteppe/cannon.js).
