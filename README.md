@@ -10,14 +10,16 @@ Still some bugs but seems fun.
 Clike [here](https://weatheringwithu.github.io/Destruction-Rendering-Demo-Game/index.html) to view demo.
 
 ## Instructions:
-Press Up/Down/Left/Right Arrow to control the cannon.
+Press Up/Down/Left/Right Arrow to move the cannon.
 
 Press A/D to control the direction of the cannon.
 
-Press W/S to control the ball shooting direction.
+Press W/S to control the ball shooting direction, Q/E to change the ball speed.
 
-Press ENTER to fire and R to reset.
+Press F to fire and R to reset.
 
-You can change other things through dat_gui.
+Press SPACE to change the simulation step.(you can get a nearly pause effect)
+
+You can use Mouse and CTRL to rotate/move the scene and change other things through dat_gui.
 
 Have fun!
